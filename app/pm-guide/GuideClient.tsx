@@ -29,8 +29,8 @@ export default function GuideClient({ groups }: { groups: GuideGroup[] }) {
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] font-sans">
-      <main className="max-w-[1400px] mx-auto px-6 py-12">
-        <div className="mb-12">
+      <main className="max-w-[1200px] mx-auto px-6 py-12">
+        <div className="mb-10">
           <h1 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
             PM Guide
           </h1>

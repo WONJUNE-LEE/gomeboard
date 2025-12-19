@@ -3,7 +3,7 @@
 
 import React, { useMemo } from "react";
 
-// 블록 타입 정의 (간소화)
+// 블록 타입 정의
 type Block = any;
 
 interface MetabaseClientProps {
@@ -13,9 +13,11 @@ interface MetabaseClientProps {
 export default function MetabaseClient({ blocks }: MetabaseClientProps) {
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] font-sans">
-      <main className="max-w-[1000px] mx-auto px-6 py-10">
+      {/* [Layout Fix] max-w-[1200px], py-12 적용하여 프로젝트 페이지와 통일 */}
+      <main className="max-w-[1200px] mx-auto px-6 py-12">
         <div className="mb-10">
-          <h1 className="text-3xl font-bold tracking-tight mb-3 text-gray-900">
+          {/* [Layout Fix] 제목 마진 mb-2로 통일 */}
+          <h1 className="text-3xl font-bold tracking-tight mb-2 text-gray-900">
             Metabase
           </h1>
           <p className="text-gray-500 text-base">
@@ -24,7 +26,6 @@ export default function MetabaseClient({ blocks }: MetabaseClientProps) {
         </div>
 
         <div className="bg-white rounded-3xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-gray-100 p-8 md:p-12">
-          {/* 블록 리스트 렌더러 호출 */}
           <BlockListRenderer blocks={blocks} level={0} />
 
           {blocks.length === 0 && (
