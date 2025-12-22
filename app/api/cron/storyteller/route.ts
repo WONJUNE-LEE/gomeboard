@@ -129,6 +129,7 @@ export async function GET(request: Request) {
               access: "public",
               contentType: "application/json",
               addRandomSuffix: false,
+              allowOverwrite: true,
             });
             console.log(`   Saved: ${filename}`);
             results.push({ groupId, url: blob.url });
