@@ -8,7 +8,6 @@ import { Treemap, ResponsiveContainer, Tooltip } from "recharts";
 // ----------------------------------------------------------------------
 // 타입 정의
 // ----------------------------------------------------------------------
-
 interface SeriesPoint {
   date: string;
   score: number;
@@ -21,7 +20,7 @@ interface DailyPoint {
 interface ChannelData {
   channelId: string;
   channelTitle: string;
-  channelUsername?: string; // [추가] 텔레그램 유저네임 필드
+  channelUsername?: string;
   score: number;
   mentionCount: number;
   profileImageUrl?: string;
@@ -62,27 +61,16 @@ function generateSparklinePath(data: number[], width: number, height: number) {
 const CustomTreemapContent = (props: any) => {
   const { x, y, width, height, name, value, totalScore } = props;
   const itemData = props.itemData || props.payload?.itemData;
-
-  // 1. 아주 작은 영역은 렌더링 생략 (최소 50px)
   if (!itemData || width < 50 || height < 50) return null;
 
-  // ----------------------------------------------------------------------
-  // [Render Logic] 크기에 따른 정보 노출 단계 (Threshold 상향 조정)
-  // ----------------------------------------------------------------------
-
-  // 1. Large: 모든 정보 표시 (Sparkline + Total Score)
+  // Thresholds
   const isLarge = width > 200 && height > 160;
-
-  // 2. Medium: Total Score 표시 (Sparkline 제외)
   const isMedium = !isLarge && width > 120 && height > 100;
-
-  // 3. Small: 아이콘 + %만 표시 (나머지 모든 경우)
   const isSmall = !isLarge && !isMedium;
 
   const percentage = ((value / totalScore) * 100).toFixed(1);
   const dailySeries = itemData.dailySeries || [];
   const dailyScores = dailySeries.map((s: DailyPoint) => s.dailyScore);
-
   const isGrowing =
     (dailyScores[dailyScores.length - 1] || 0) >= (dailyScores[0] || 0);
 
@@ -100,7 +88,6 @@ const CustomTreemapContent = (props: any) => {
   const drawWidth = width - gap;
   const drawHeight = height - gap;
 
-  // 그래프는 Large 상태일 때만 계산 및 렌더링
   const sparklinePath = isLarge
     ? generateSparklinePath(dailyScores, drawWidth - 32, drawHeight * 0.25)
     : "";
@@ -124,22 +111,18 @@ const CustomTreemapContent = (props: any) => {
         }}
       >
         <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent pointer-events-none" />
-
-        {/* 컨텐츠 영역 */}
         <div
           className={`relative z-10 w-full h-full flex ${
             isSmall
-              ? "flex-col items-center justify-center gap-1" // Small: 중앙 정렬
-              : "flex-col justify-between" // Medium/Large: 상하 배치
+              ? "flex-col items-center justify-center gap-1"
+              : "flex-col justify-between"
           }`}
         >
-          {/* 상단 (아이콘 + 이름 + %) */}
           <div
             className={`flex ${
               isSmall ? "flex-col items-center" : "items-start gap-2"
             }`}
           >
-            {/* 1. 프로필 이미지 */}
             {itemData.profileImageUrl && (
               <div className="relative shrink-0">
                 <img
@@ -156,8 +139,6 @@ const CustomTreemapContent = (props: any) => {
                 />
               </div>
             )}
-
-            {/* 2. 텍스트 정보 (Small이 아닐 때만 표시) */}
             {!isSmall && (
               <div className="min-w-0 flex-1 pt-0.5">
                 <p
@@ -179,8 +160,6 @@ const CustomTreemapContent = (props: any) => {
                 </div>
               </div>
             )}
-
-            {/* 3. Small 모드 전용 퍼센트 */}
             {isSmall && (
               <span
                 className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full backdrop-blur-md shadow-sm mt-1 ${
@@ -193,8 +172,6 @@ const CustomTreemapContent = (props: any) => {
               </span>
             )}
           </div>
-
-          {/* 4. 그래프 (Large 전용) */}
           {isLarge && (
             <div className="absolute bottom-4 left-4 right-4 h-1/4 pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
               <svg width="100%" height="100%" overflow="visible">
@@ -210,8 +187,6 @@ const CustomTreemapContent = (props: any) => {
               </svg>
             </div>
           )}
-
-          {/* 5. Total Score (Medium 이상 표시) */}
           {!isSmall && (
             <div className="relative z-10 text-right mt-auto">
               <p className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5 mix-blend-multiply">
@@ -287,7 +262,7 @@ export default function StorytellerClient({
   availableGroupIds,
   projectNames,
 }: {
-  apiDataMap: Record<string, any>; // 이제 { "7":..., "30":... } 구조를 가짐
+  apiDataMap: Record<string, any>;
   notionTasks: NotionTask[];
   availableGroupIds: string[];
   projectNames: Record<string, string>;
@@ -305,7 +280,7 @@ export default function StorytellerClient({
       : availableGroupIds[0] || "63"
   );
 
-  // [New State] 기간 선택 (Default: 30)
+  // [State] 기간 선택 (Default: 30)
   const [lookback, setLookback] = useState<number>(30);
 
   const [currentDataMap, setCurrentDataMap] = useState(initialApiDataMap);
@@ -356,7 +331,6 @@ export default function StorytellerClient({
         );
         if (res.ok) {
           const historyData = await res.json();
-          // historyData will be { "7": ..., "30": ... } for new data
           setCurrentDataMap((prev) => ({
             ...prev,
             [selectedGroupId]: historyData,
@@ -375,24 +349,18 @@ export default function StorytellerClient({
     fetchHistory();
   }, [selectedDate, selectedGroupId, todayStr, initialApiDataMap]);
 
-  // [Data Selector] 선택된 Group & Lookback에 맞는 데이터 추출
+  // [Data Selector]
   const currentGroupAllData = currentDataMap[selectedGroupId];
 
   const currentApiData = useMemo(() => {
     if (!currentGroupAllData) return null;
-
-    // 1. 새로운 데이터 구조인지 확인 (키 값으로 확인)
     if (currentGroupAllData["30"] || currentGroupAllData["7"]) {
       return currentGroupAllData[lookback.toString()];
     }
-
-    // 2. 구 데이터(Legacy)인 경우: 30일 데이터로 간주
-    // 사용자가 30일을 선택했을 때만 보여주고, 나머지는 null
     if (lookback === 30) {
       return currentGroupAllData;
     }
-
-    return null; // 구 데이터인데 7, 14, 90을 선택한 경우 데이터 없음
+    return null;
   }, [currentGroupAllData, lookback]);
 
   // TreeMap Data Processing
@@ -422,7 +390,6 @@ export default function StorytellerClient({
     return { treeMapData: data, totalScore: total };
   }, [currentApiData]);
 
-  // Visual & Table Data
   const treemapVisualData = useMemo(
     () => treeMapData.slice(0, 20),
     [treeMapData]
@@ -485,85 +452,97 @@ export default function StorytellerClient({
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] font-sans selection:bg-indigo-100 selection:text-indigo-900">
       <main className="max-w-[1600px] mx-auto px-6 py-12">
-        {/* Header */}
-        <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600">
-              Storyteller
-            </h1>
-            <p className="text-gray-500 text-lg font-medium">
-              Influence Intelligence & Content Scheduling
-            </p>
+        {/* ======================= Header Section ======================= */}
+        <div className="flex flex-col gap-6 mb-10">
+          {/* Row 1: Title & Controls (Right Aligned) */}
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            {/* Left: Title */}
+            <div>
+              <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-600">
+                Storyteller
+              </h1>
+              <p className="text-gray-500 text-lg font-medium">
+                Influence Intelligence & Content Scheduling
+              </p>
+            </div>
+
+            {/* Right: Controls (Period & Date) */}
+            <div className="flex flex-wrap items-end gap-6">
+              {/* Period Selector */}
+              <div className="flex flex-col items-end">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                  Period
+                </label>
+                <div className="flex bg-white rounded-xl p-1 shadow-sm border border-gray-200">
+                  {[7, 14, 30, 90].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => setLookback(days)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        lookback === days
+                          ? "bg-gray-900 text-white shadow-md"
+                          : "text-gray-500 hover:bg-gray-100"
+                      }`}
+                    >
+                      {days}d
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time Machine */}
+              <div className="flex flex-col items-end">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                  {selectedDate !== todayStr && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  )}
+                  Time Machine
+                </label>
+                <div className="relative group">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    max={todayStr}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className={`
+                      appearance-none bg-white border rounded-xl px-4 py-2 text-sm font-bold shadow-sm outline-none transition-all duration-200
+                      ${
+                        selectedDate !== todayStr
+                          ? "border-indigo-300 ring-2 ring-indigo-100 text-indigo-700"
+                          : "border-gray-200 text-gray-700 hover:border-gray-300 focus:ring-2 focus:ring-gray-100"
+                      }
+                    `}
+                  />
+                  {selectedDate !== todayStr && (
+                    <button
+                      onClick={() => setSelectedDate(todayStr)}
+                      className="absolute -bottom-6 right-0 text-[10px] text-indigo-500 hover:underline font-medium"
+                    >
+                      Reset to Today
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex flex-col md:flex-row items-end md:items-center gap-6">
-            {/* [New] Lookback Selector */}
-            <div className="flex flex-col items-end">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                Period
-              </label>
-              <div className="flex bg-white rounded-xl p-1 shadow-sm border border-gray-200">
-                {[7, 14, 30, 90].map((days) => (
-                  <button
-                    key={days}
-                    onClick={() => setLookback(days)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      lookback === days
-                        ? "bg-gray-900 text-white shadow-md"
-                        : "text-gray-500 hover:bg-gray-100"
-                    }`}
-                  >
-                    {days}d
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            {/* Time Machine */}
-            <div className="flex flex-col items-end">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
-                {selectedDate !== todayStr && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                )}
-                Time Machine
-              </label>
-              <div className="relative group">
-                <input
-                  type="date"
-                  value={selectedDate}
-                  max={todayStr}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className={`appearance-none bg-white border rounded-xl px-4 py-2 text-sm font-bold shadow-sm outline-none transition-all duration-200 ${
-                    selectedDate !== todayStr
-                      ? "border-indigo-300 ring-2 ring-indigo-100 text-indigo-700"
-                      : "border-gray-200 text-gray-700 hover:border-gray-300 focus:ring-2 focus:ring-gray-100"
-                  }`}
-                />
-                {selectedDate !== todayStr && (
-                  <button
-                    onClick={() => setSelectedDate(todayStr)}
-                    className="absolute -bottom-6 right-0 text-[10px] text-indigo-500 hover:underline font-medium"
-                  >
-                    Reset to Today
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Project Tabs */}
-            <div className="flex flex-col items-end gap-3 bg-white/50 p-2 rounded-xl border border-gray-200/60 backdrop-blur-sm min-w-[300px]">
+          {/* Row 2: Project Tabs (Wide Bar) */}
+          <div className="w-full bg-white/60 p-2 rounded-2xl border border-gray-200/60 backdrop-blur-md shadow-sm">
+            <div className="flex flex-col gap-2">
+              {/* Active Projects */}
               {activeIds.length > 0 && (
-                <div className="w-full">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 px-1">
-                    Running
+                <div className="flex items-center gap-3">
+                  <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded shrink-0">
+                    Active
                   </div>
-                  <div className="flex flex-wrap gap-2 justify-end">
+                  <div className="flex flex-wrap gap-2">
                     {activeIds.map((id) => (
                       <button
                         key={id}
                         onClick={() => handleTabClick(id)}
                         className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${
                           selectedGroupId === id
-                            ? "bg-white text-indigo-600 shadow-sm ring-1 ring-gray-100 scale-[1.02]"
+                            ? "bg-white text-indigo-600 shadow-sm ring-1 ring-gray-200 scale-[1.02]"
                             : "text-gray-500 hover:text-gray-900 hover:bg-gray-100/50"
                         }`}
                       >
@@ -573,15 +552,19 @@ export default function StorytellerClient({
                   </div>
                 </div>
               )}
+
+              {/* Separator (if both exist) */}
               {finishedIds.length > 0 && activeIds.length > 0 && (
-                <div className="w-full h-px bg-gray-200/50 my-0.5" />
+                <div className="h-px bg-gray-200/50 w-full" />
               )}
+
+              {/* Finished Projects */}
               {finishedIds.length > 0 && (
-                <div className="w-full">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 px-1 text-right">
+                <div className="flex items-center gap-3">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 px-2 py-1 rounded shrink-0">
                     Finished
                   </div>
-                  <div className="flex flex-wrap gap-2 justify-end">
+                  <div className="flex flex-wrap gap-2">
                     {finishedIds.map((id) => (
                       <button
                         key={id}
@@ -602,8 +585,12 @@ export default function StorytellerClient({
           </div>
         </div>
 
+        {/* ======================= Content Section ======================= */}
         {/* 1. TreeMap */}
-        <div className="rounded-[40px] p-2 shadow-inner border border-white/50 mb-12 relative overflow-hidden bg-white/30 h-[1000px] md:h-[700px]">
+        <div
+          className="rounded-[40px] p-2 shadow-inner border border-white/50 mb-12 relative overflow-hidden bg-white/30 
+                     h-[1000px] md:h-[700px]"
+        >
           {isLoadingHistory && (
             <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-md flex flex-col items-center justify-center rounded-[32px] transition-all">
               <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
@@ -612,6 +599,7 @@ export default function StorytellerClient({
               </div>
             </div>
           )}
+
           <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-[0.15] grayscale">
             <img
               src="/logo.png"
@@ -620,6 +608,7 @@ export default function StorytellerClient({
             />
           </div>
           <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent pointer-events-none rounded-[32px]" />
+
           <div className="w-full h-full relative z-10">
             {treemapVisualData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -661,6 +650,7 @@ export default function StorytellerClient({
               Top 50 Channels ({lookback}d)
             </span>
           </h2>
+
           <div className="overflow-hidden border border-gray-100 rounded-2xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -685,6 +675,7 @@ export default function StorytellerClient({
                       const telegramLink = channel.channelUsername
                         ? `https://t.me/${channel.channelUsername}`
                         : `https://t.me/${channel.channelId}`;
+
                       return (
                         <tr
                           key={channel.channelId}
@@ -693,6 +684,7 @@ export default function StorytellerClient({
                           <td className="px-6 py-4 text-center font-bold text-gray-400 group-hover:text-indigo-500 transition-colors">
                             {index + 1}
                           </td>
+
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-4">
                               {channel.profileImageUrl ? (
@@ -718,11 +710,13 @@ export default function StorytellerClient({
                               </div>
                             </div>
                           </td>
+
                           <td className="px-6 py-4 text-right">
                             <span className="font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg tabular-nums">
                               {Math.round(channel.score).toLocaleString()}
                             </span>
                           </td>
+
                           <td className="px-6 py-4 text-center">
                             <a
                               href={telegramLink}
