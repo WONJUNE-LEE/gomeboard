@@ -261,16 +261,22 @@ export default function StorytellerClient({
   notionTasks,
   availableGroupIds,
   projectNames,
+  initialNow, // [New] Props
+  initialTodayStr, // [New] Props
 }: {
   apiDataMap: Record<string, any>;
   notionTasks: NotionTask[];
   availableGroupIds: string[];
   projectNames: Record<string, string>;
+  initialNow: number;
+  initialTodayStr: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryGroupId = searchParams.get("groupId");
-  const todayStr = useMemo(() => new Date().toLocaleDateString("en-CA"), []);
+  // [Fix] Server Time을 기준으로 초기값 설정 (Hydration Error 방지)
+  const todayStr = useMemo(() => initialTodayStr, [initialTodayStr]);
+  const initialDateObj = useMemo(() => new Date(initialNow), [initialNow]);
 
   // [State] UI 상태
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -642,28 +648,31 @@ export default function StorytellerClient({
           </div>
         </div>
 
-        {/* 2. Leaderboard */}
-        <div className="bg-white rounded-[32px] p-8 shadow-xl shadow-gray-200/50 border border-white mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
+        {/* 2. [Updated] Compact Leaderboard */}
+        <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-xl shadow-gray-200/50 border border-white mb-12">
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3">
             🏆 Leaderboard
-            <span className="text-sm font-normal text-gray-400 bg-gray-50 px-2 py-1 rounded ml-2">
-              Top 50 Channels ({lookback}d)
+            <span className="text-xs md:text-sm font-normal text-gray-400 bg-gray-50 px-2 py-1 rounded ml-2">
+              Top 50 ({lookback}d)
             </span>
           </h2>
 
           <div className="overflow-hidden border border-gray-100 rounded-2xl">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+            {/* overflow-x-auto를 유지하되, 컨텐츠가 화면에 맞도록 max-width 설정 */}
+            <div className="w-full">
+              <table className="w-full text-left border-collapse table-fixed">
                 <thead>
-                  <tr className="bg-gray-50/50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100">
-                    <th className="px-6 py-4 font-semibold w-16 text-center">
+                  <tr className="bg-gray-50/50 text-gray-500 text-[10px] md:text-xs uppercase tracking-wider border-b border-gray-100">
+                    <th className="px-2 py-3 md:px-6 md:py-4 font-semibold w-8 md:w-16 text-center">
                       #
                     </th>
-                    <th className="px-6 py-4 font-semibold">Channel</th>
-                    <th className="px-6 py-4 font-semibold text-right">
+                    <th className="px-2 py-3 md:px-6 md:py-4 font-semibold w-auto">
+                      Channel
+                    </th>
+                    <th className="px-2 py-3 md:px-6 md:py-4 font-semibold text-right w-20 md:w-32">
                       Score
                     </th>
-                    <th className="px-6 py-4 font-semibold text-center w-24">
+                    <th className="px-2 py-3 md:px-6 md:py-4 font-semibold text-center w-12 md:w-24">
                       Link
                     </th>
                   </tr>
@@ -681,28 +690,30 @@ export default function StorytellerClient({
                           key={channel.channelId}
                           className="hover:bg-gray-50/80 transition-colors group"
                         >
-                          <td className="px-6 py-4 text-center font-bold text-gray-400 group-hover:text-indigo-500 transition-colors">
+                          {/* Rank */}
+                          <td className="px-2 py-2 md:px-6 md:py-3 text-center font-bold text-gray-400 text-xs md:text-sm group-hover:text-indigo-500 transition-colors">
                             {index + 1}
                           </td>
 
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-4">
+                          {/* Channel Info (Compact) */}
+                          <td className="px-2 py-2 md:px-6 md:py-3 overflow-hidden">
+                            <div className="flex items-center gap-2 md:gap-4">
                               {channel.profileImageUrl ? (
                                 <img
                                   src={channel.profileImageUrl}
                                   alt=""
-                                  className="w-10 h-10 rounded-full shadow-sm object-cover border border-gray-100"
+                                  className="w-6 h-6 md:w-10 md:h-10 rounded-full shadow-sm object-cover border border-gray-100 shrink-0"
                                 />
                               ) : (
-                                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs font-bold">
+                                <div className="w-6 h-6 md:w-10 md:h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-[10px] font-bold shrink-0">
                                   ?
                                 </div>
                               )}
-                              <div className="min-w-0">
-                                <p className="font-bold text-gray-900 truncate max-w-[200px] md:max-w-xs">
+                              <div className="min-w-0 flex flex-col">
+                                <p className="font-bold text-gray-900 text-xs md:text-sm truncate pr-2">
                                   {channel.channelTitle}
                                 </p>
-                                <p className="text-xs text-gray-400 truncate">
+                                <p className="text-[10px] md:text-xs text-gray-400 truncate">
                                   {channel.channelUsername
                                     ? `@${channel.channelUsername}`
                                     : `@${channel.channelId}`}
@@ -711,27 +722,29 @@ export default function StorytellerClient({
                             </div>
                           </td>
 
-                          <td className="px-6 py-4 text-right">
-                            <span className="font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-lg tabular-nums">
+                          {/* Score (Compact) */}
+                          <td className="px-2 py-2 md:px-6 md:py-3 text-right">
+                            <span className="font-bold text-gray-900 bg-gray-50 px-1.5 py-0.5 md:px-2 md:py-1 rounded-lg tabular-nums text-xs md:text-sm whitespace-nowrap">
                               {Math.round(channel.score).toLocaleString()}
                             </span>
                           </td>
 
-                          <td className="px-6 py-4 text-center">
+                          {/* Link Button (Compact) */}
+                          <td className="px-2 py-2 md:px-6 md:py-3 text-center">
                             <a
                               href={telegramLink}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 text-gray-400 hover:bg-sky-50 hover:text-sky-600 transition-all hover:scale-110"
+                              className="inline-flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-full bg-gray-100 text-gray-400 hover:bg-sky-50 hover:text-sky-600 transition-all hover:scale-110"
                               title="Visit Telegram Channel"
                             >
                               <svg
                                 xmlns="http://www.w3.org/2000/svg"
-                                width="24"
-                                height="24"
+                                width="16"
+                                height="16"
                                 viewBox="0 0 24 24"
                                 fill="currentColor"
-                                className="w-4 h-4"
+                                className="w-3 h-3 md:w-4 md:h-4"
                               >
                                 <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 11.944 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
                               </svg>
@@ -842,8 +855,9 @@ export default function StorytellerClient({
                 {/* Today Marker */}
                 <div
                   className="absolute top-0 bottom-0 border-l-2 border-red-500/80 z-20 pointer-events-none"
+                  // [Fix] Here is the key change: use initialDateObj instead of new Date()
                   style={{
-                    left: `${getDatePosition(new Date().toISOString())}%`,
+                    left: `${getDatePosition(initialDateObj.toISOString())}%`,
                   }}
                 >
                   <div className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full absolute -top-1.5 -left-6 shadow-md">

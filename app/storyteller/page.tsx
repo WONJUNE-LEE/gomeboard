@@ -211,12 +211,11 @@ const getCachedNotion = unstable_cache(
 export default async function StorytellerPage() {
   const notionTasks = await getCachedNotion();
 
-  // 1. GroupID 추출 (이미 필터링되었지만 안전하게 한 번 더 체크)
+  // 1. GroupID 추출
   const uniqueGroupIds = Array.from(
     new Set(notionTasks.map((t: any) => t.groupId).filter((id: any) => id))
   ) as string[];
 
-  // 기본값 (데이터가 없거나 ID가 없는 경우)
   if (uniqueGroupIds.length === 0) uniqueGroupIds.push("63");
 
   // 2. GroupID -> ProjectName 매핑
@@ -232,12 +231,19 @@ export default async function StorytellerPage() {
   // 3. API 데이터 가져오기
   const apiDataMap = await fetchAllApiData(uniqueGroupIds);
 
+  // 4. [Fix] Hydration Error 방지를 위한 서버 시간 고정
+  const now = new Date();
+  const initialNow = now.getTime(); // 클라이언트로 전달할 타임스탬프
+  const initialTodayStr = now.toLocaleDateString("en-CA"); // YYYY-MM-DD
+
   return (
     <StorytellerClient
       notionTasks={notionTasks}
       apiDataMap={apiDataMap}
       availableGroupIds={uniqueGroupIds}
       projectNames={projectNames}
+      initialNow={initialNow} // [New]
+      initialTodayStr={initialTodayStr} // [New]
     />
   );
 }
