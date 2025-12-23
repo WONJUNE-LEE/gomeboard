@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/mypage/page.tsx
 "use client";
 
@@ -5,401 +6,557 @@ import React, { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import Link from "next/link";
 
+// ----------------------------------------------------------------------
+// [타입 정의]
+// ----------------------------------------------------------------------
+interface ChannelData {
+  handle: string;
+  title: string;
+  subscribers?: number;
+  photoUrl: string | null;
+  url: string;
+  role?: string;
+}
+
+interface LeaderboardItem {
+  campaign: string;
+  rank: number;
+  score: number;
+  change: number;
+  handle: string;
+}
+
 export default function MyPage() {
   const {
     user,
     ready,
     authenticated,
+    linkTelegram,
+    unlinkTelegram,
     linkGoogle,
     unlinkGoogle,
     linkApple,
     unlinkApple,
-    linkDiscord,
-    unlinkDiscord,
-    linkTelegram,
-    unlinkTelegram,
     linkTwitter,
     unlinkTwitter,
-    linkWallet,
-    unlinkWallet,
+    linkDiscord,
+    unlinkDiscord,
     linkEmail,
     unlinkEmail,
+    linkWallet,
+    unlinkWallet,
   } = usePrivy();
 
-  // [State] 채널 검증 및 관리 상태
+  // [State]
   const [channelInput, setChannelInput] = useState("");
-  const [myChannel, setMyChannel] = useState<{
-    handle: string;
-    url: string;
-    role?: string;
-  } | null>(null);
+  const [myChannel, setMyChannel] = useState<ChannelData | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [myRanks, setMyRanks] = useState<LeaderboardItem[]>([]);
+  const [isLoadingRank, setIsLoadingRank] = useState(false);
 
-  // [Effect] 로컬 스토리지에서 저장된 채널 정보 불러오기
+  // 1. 초기화
   useEffect(() => {
     const saved = localStorage.getItem("my_telegram_channel");
-    if (saved) {
-      setMyChannel(JSON.parse(saved));
-    }
+    if (saved) setMyChannel(JSON.parse(saved));
   }, []);
 
-  // [Handler] 채널 소유권 검증 요청
+  // 2. 랭킹 조회
+  useEffect(() => {
+    if (myChannel?.handle) fetchMyRank(myChannel.handle);
+  }, [myChannel]);
+
+  const fetchMyRank = async (handle: string) => {
+    setIsLoadingRank(true);
+    try {
+      const response = await fetch("/api/my-rank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle }),
+      });
+      const data = await response.json();
+      setMyRanks(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoadingRank(false);
+    }
+  };
+
+  const cleanInput = (input: string) => {
+    let clean = input.trim();
+    if (clean.includes("t.me/")) clean = clean.split("t.me/")[1].split("/")[0];
+    return clean
+      .replace("@", "")
+      .replace("https://", "")
+      .replace("http://", "");
+  };
+
   const handleVerifyChannel = async () => {
     if (!channelInput || !user?.telegram?.telegramUserId) return;
+    const cleanId = cleanInput(channelInput);
 
     setIsVerifying(true);
-
     try {
       const response = await fetch("/api/verify-channel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channelId: channelInput,
-          userId: user.telegram.telegramUserId, // Privy가 제공하는 유저의 텔레그램 숫자 ID
+          channelId: cleanId,
+          userId: user.telegram.telegramUserId,
         }),
       });
-
       const data = await response.json();
 
       if (data.success) {
-        // 성공 시 데이터 정제 및 저장
-        const handle = channelInput
-          .replace("@", "")
-          .replace("t.me/", "")
-          .replace("https://", "");
-
-        const channelData = {
-          handle: handle,
-          url: `https://t.me/${handle}`,
-          role: data.role, // 'creator' 또는 'administrator'
+        const channelData: ChannelData = {
+          handle: data.channel.id,
+          title: data.channel.title,
+          // 백엔드에서 subscribers를 제대로 주는지 확인 필요 (없으면 0)
+          subscribers: data.channel.subscribers || 0,
+          photoUrl: data.channel.photoUrl,
+          url: data.channel.url,
+          role: data.role,
         };
-
         setMyChannel(channelData);
         localStorage.setItem(
           "my_telegram_channel",
           JSON.stringify(channelData)
         );
         setChannelInput("");
-        alert("✅ 채널 소유권이 확인되었습니다!");
+        fetchMyRank(channelData.handle);
       } else {
-        // 실패 시 에러 메시지
-        alert(`❌ 검증 실패: ${data.message || "알 수 없는 오류"}`);
+        alert(`❌ 검증 실패: ${data.message || "오류가 발생했습니다."}`);
       }
     } catch (e) {
-      console.error(e);
-      alert("서버 통신 중 오류가 발생했습니다.");
+      alert("서버 오류가 발생했습니다.");
     } finally {
       setIsVerifying(false);
     }
   };
 
-  // [Handler] 채널 삭제
   const handleDeleteChannel = () => {
-    if (confirm("등록된 채널 정보를 삭제하시겠습니까?")) {
+    if (confirm("채널 연동을 해제하시겠습니까?")) {
       setMyChannel(null);
+      setMyRanks([]);
       localStorage.removeItem("my_telegram_channel");
     }
   };
 
-  if (!ready || !authenticated || !user) {
-    return null; // 또는 로딩 스피너
-  }
+  if (!ready || !authenticated || !user) return null;
 
-  // 텔레그램 연동 여부 확인
   const isTelegramLinked = !!user.telegram;
+  const isChannelLinked = !!myChannel;
 
-  // 프로필 정보 우선순위: 텔레그램 > 트위터 > 구글 > 지갑/이메일
+  // 배너 콘텐츠 로직
+  const getBannerContent = () => {
+    if (!isTelegramLinked) {
+      return {
+        type: "warning",
+        title: "텔레그램 계정 연동 필요",
+        desc: "서비스 참여를 위해 텔레그램을 먼저 연결해주세요.",
+      };
+    }
+    if (isTelegramLinked && !isChannelLinked) {
+      return {
+        type: "warning",
+        title: "채널 소유권 인증 필요",
+        desc: "리더보드 확인을 위해 운영 중인 채널을 인증해주세요.",
+      };
+    }
+    // [수정] 성공 상태에서도 안내문 유지
+    return {
+      type: "info",
+      title: "연동 상태 유지 필수",
+      desc: "캠페인 보상 지급을 위해 계정과 채널 연동 상태를 계속 유지해주세요.",
+    };
+  };
+
+  const banner = getBannerContent();
   const profileImage =
     user.telegram?.photoUrl || user.twitter?.profilePictureUrl || null;
-
   const displayName =
     user.telegram?.username ||
     user.twitter?.username ||
     user.google?.name ||
     user.email?.address ||
-    user.wallet?.address.slice(0, 6);
+    "User";
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] font-sans">
-      <main className="max-w-2xl mx-auto px-6 py-12">
-        {/* 헤더 영역 */}
-        <div className="mb-10 text-center">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Account</h1>
-          <p className="text-gray-500">계정 설정 및 연결 관리</p>
+      <main className="max-w-[1200px] mx-auto px-4 py-8">
+        <div className="mb-6 flex items-end justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-500 text-sm">계정 및 활동 관리</p>
+          </div>
+          <Link
+            href="/"
+            className="text-xs text-gray-400 hover:text-gray-600 underline"
+          >
+            ← Home
+          </Link>
         </div>
 
-        {/* 1. [중요] 텔레그램 미연동 시 경고 메시지 */}
-        {!isTelegramLinked && (
-          <div className="mb-8 bg-orange-50 border border-orange-100 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-5 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center shrink-0 text-2xl">
-              📢
-            </div>
-            <div className="flex-1 text-center sm:text-left">
-              <h3 className="font-bold text-orange-800 text-lg mb-1">
-                텔레그램 연동이 필요합니다
-              </h3>
-              <p className="text-sm text-orange-700 mb-3">
-                스토리텔러 등 핵심 서비스에 참여하려면 텔레그램 계정을
-                연결해주세요.
-                <br className="hidden sm:block" />
-                프로필 사진과 닉네임도 텔레그램 정보를 사용합니다.
-              </p>
+        {/* 메인 그리드 */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* ==================================================================================
+              [왼쪽 컬럼] 계정 정보 (lg:col-span-7)
+              ================================================================================== */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* 1. 상단: 프로필 + 채널 (한 줄 배치, 높이 맞춤) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* [좌] 프로필 카드 */}
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 relative overflow-hidden h-[88px]">
+                <div className="relative shrink-0">
+                  <img
+                    src={profileImage || ""}
+                    alt=""
+                    className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-sm bg-gray-100"
+                  />
+                  {!profileImage && (
+                    <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold border-2 border-white">
+                      {displayName.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  {isTelegramLinked && (
+                    <div
+                      className="absolute -bottom-1 -right-1 bg-[#2AABEE] text-white p-0.5 rounded-full border-2 border-white shadow-sm z-10"
+                      title="Telegram Verified"
+                    >
+                      <svg
+                        className="w-3 h-3"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 11.944 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-bold text-gray-900 text-base leading-tight truncate">
+                    {displayName}
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">
+                    {isTelegramLinked ? "Verified User" : "Guest"}
+                  </p>
+                </div>
+              </div>
 
-              {/* [수정] onLink -> onClick 으로 변경하여 HTML 표준 준수 */}
-              <button
-                onClick={() => linkTelegram()}
-                className="bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95"
+              {/* [우] 채널 설정 카드 */}
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col justify-center h-[88px]">
+                {!isTelegramLinked ? (
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] text-gray-500 flex-1">
+                      채널 설정을 위해
+                      <br />
+                      먼저 로그인하세요.
+                    </p>
+                    <button
+                      onClick={() => linkTelegram()}
+                      className="bg-black text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-800 shrink-0"
+                    >
+                      Connect
+                    </button>
+                  </div>
+                ) : !myChannel ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="@channel"
+                        value={channelInput}
+                        onChange={(e) => setChannelInput(e.target.value)}
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-[#2AABEE] outline-none"
+                      />
+                      <button
+                        onClick={handleVerifyChannel}
+                        disabled={!channelInput || isVerifying}
+                        className="bg-[#2AABEE] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#229ED9] whitespace-nowrap"
+                      >
+                        인증
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-gray-400">
+                      * <strong>@gome_login_bot</strong> 관리자 추가 필수
+                    </p>
+                  </div>
+                ) : (
+                  // [수정] 인증된 채널 정보: 한 줄 배치 & 휴지통 아이콘
+                  <div className="flex items-center justify-between w-full gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-gray-100 shrink-0 overflow-hidden relative border border-gray-100">
+                        {myChannel.photoUrl ? (
+                          <img
+                            src={myChannel.photoUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[#2AABEE] font-bold text-sm bg-blue-50">
+                            {myChannel.title[0]}
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1">
+                          <h4 className="font-bold text-sm text-gray-900 truncate max-w-[100px]">
+                            {myChannel.title}
+                          </h4>
+                          <span className="text-[8px] bg-green-50 text-green-600 px-1 rounded border border-green-100 font-bold">
+                            OWNER
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                          @{myChannel.handle} ·{" "}
+                          {myChannel.subscribers
+                            ? myChannel.subscribers.toLocaleString()
+                            : "-"}{" "}
+                          subs
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* [수정] 휴지통 아이콘 (연동 해제) */}
+                    <button
+                      onClick={handleDeleteChannel}
+                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all shrink-0"
+                      title="연동 해제"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. 안내 배너 (성공 시에도 표시됨 - Type: Info) */}
+            <div
+              className={`border rounded-2xl p-4 flex items-center gap-4 shadow-sm ${
+                banner.type === "success" || banner.type === "info"
+                  ? "bg-blue-50/50 border-blue-100"
+                  : "bg-orange-50/50 border-orange-100"
+              }`}
+            >
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base ${
+                  banner.type === "success" || banner.type === "info"
+                    ? "bg-blue-100 text-blue-600"
+                    : "bg-orange-100 text-orange-600"
+                }`}
               >
-                지금 텔레그램 연결하기 →
-              </button>
+                {banner.type === "success" || banner.type === "info"
+                  ? "i"
+                  : "!"}
+              </div>
+              <div className="flex-1">
+                <h3
+                  className={`font-bold text-xs mb-0.5 ${
+                    banner.type === "success" || banner.type === "info"
+                      ? "text-blue-800"
+                      : "text-orange-800"
+                  }`}
+                >
+                  {banner.title}
+                </h3>
+                <p
+                  className={`text-[11px] ${
+                    banner.type === "success" || banner.type === "info"
+                      ? "text-blue-600"
+                      : "text-orange-600"
+                  }`}
+                >
+                  {banner.desc}
+                </p>
+              </div>
+            </div>
+
+            {/* 3. 연결된 계정 리스트 (모든 계정 복구) */}
+            <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+              <div className="px-5 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <h3 className="font-bold text-gray-900 text-sm">
+                  Linked Accounts
+                </h3>
+              </div>
+              <div className="divide-y divide-gray-50">
+                <AccountRow
+                  icon="✈️"
+                  name="Telegram"
+                  isConnected={!!user.telegram}
+                  identifier={user.telegram?.username}
+                  onLink={linkTelegram}
+                  onUnlink={() => unlinkTelegram(user.telegram!.telegramUserId)}
+                  isPrimary={true}
+                />
+                <AccountRow
+                  icon="G"
+                  name="Google"
+                  isConnected={!!user.google}
+                  identifier={user.google?.email}
+                  onLink={linkGoogle}
+                  onUnlink={() => unlinkGoogle(user.google!.subject)}
+                />
+                <AccountRow
+                  icon="🍎"
+                  name="Apple"
+                  isConnected={!!user.apple}
+                  identifier={user.apple?.email}
+                  onLink={linkApple}
+                  onUnlink={() => unlinkApple(user.apple!.subject)}
+                />
+                <AccountRow
+                  icon="𝕏"
+                  name="Twitter"
+                  isConnected={!!user.twitter}
+                  identifier={user.twitter?.username}
+                  onLink={linkTwitter}
+                  onUnlink={() => unlinkTwitter(user.twitter!.subject)}
+                />
+                <AccountRow
+                  icon="👾"
+                  name="Discord"
+                  isConnected={!!user.discord}
+                  identifier={user.discord?.username}
+                  onLink={linkDiscord}
+                  onUnlink={() => unlinkDiscord(user.discord!.subject)}
+                />
+                <AccountRow
+                  icon="✉️"
+                  name="Email"
+                  isConnected={!!user.email}
+                  identifier={user.email?.address}
+                  onLink={linkEmail}
+                  onUnlink={() => unlinkEmail(user.email!.address)}
+                />
+                <AccountRow
+                  icon="🦊"
+                  name="Wallet"
+                  isConnected={!!user.wallet}
+                  identifier={
+                    user.wallet?.address
+                      ? `${user.wallet.address.slice(0, 6)}...`
+                      : null
+                  }
+                  onLink={linkWallet}
+                  onUnlink={() => unlinkWallet(user.wallet!.address)}
+                />
+              </div>
             </div>
           </div>
-        )}
 
-        {/* 2. 프로필 카드 */}
-        <div className="bg-white rounded-[32px] p-8 shadow-sm border border-gray-100 mb-8 flex flex-col items-center">
-          <div className="relative mb-4 group">
-            <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-lg bg-gray-100">
-              {profileImage ? (
-                <img
-                  src={profileImage}
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-300 text-4xl font-bold bg-gray-50">
-                  {displayName?.slice(0, 1).toUpperCase()}
-                </div>
+          {/* ==================================================================================
+              [오른쪽 컬럼] 리더보드 (lg:col-span-5)
+              ================================================================================== */}
+          <div className="lg:col-span-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">My Rankings</h2>
+              {isChannelLinked && (
+                <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">
+                  Live
+                </span>
               )}
             </div>
-            {/* 텔레그램 인증 뱃지 */}
-            {isTelegramLinked && (
-              <div
-                className="absolute bottom-0 right-0 bg-[#2AABEE] text-white p-1.5 rounded-full border-2 border-white shadow-sm"
-                title="Telegram Verified"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 11.944 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                </svg>
+
+            {!isChannelLinked ? (
+              <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-8 text-center flex flex-col items-center justify-center h-64">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-2xl mb-3 grayscale opacity-50">
+                  🔒
+                </div>
+                <p className="text-sm font-bold text-gray-600">
+                  Rankings Locked
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  채널 인증 후 확인 가능합니다.
+                </p>
+              </div>
+            ) : isLoadingRank ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="aspect-[4/3] bg-gray-200 rounded-2xl animate-pulse"
+                  ></div>
+                ))}
+              </div>
+            ) : myRanks.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {myRanks.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col justify-between hover:border-[#2AABEE] transition-colors group"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-[14px] text-gray-400 font-bold group-hover:bg-blue-50 group-hover:text-blue-500 transition-colors">
+                        {item.campaign.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xl font-bold text-[#0037F0]">
+                          #{item.rank}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <h4
+                        className="font-bold text-gray-900 text-sm truncate mb-1"
+                        title={item.campaign}
+                      >
+                        {item.campaign}
+                      </h4>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono font-medium text-gray-600">
+                          {item.score.toLocaleString()}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold ${
+                            item.change > 0
+                              ? "text-red-500"
+                              : item.change < 0
+                              ? "text-blue-500"
+                              : "text-gray-400"
+                          }`}
+                        >
+                          {item.change !== 0
+                            ? item.change > 0
+                              ? `▲${item.change}`
+                              : `▼${Math.abs(item.change)}`
+                            : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center h-64 flex flex-col items-center justify-center">
+                <div className="text-2xl mb-2">📉</div>
+                <p className="text-sm font-bold text-gray-900">No Data</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  30일 내 활동 기록이 없습니다.
+                </p>
               </div>
             )}
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">
-            {displayName}
-          </h2>
-          <p className="text-gray-400 text-sm font-medium">
-            {user.telegram ? "Verified User" : "Guest User"}
-          </p>
-        </div>
-
-        {/* 3. [NEW] 내 채널 검증 및 설정 섹션 */}
-        {isTelegramLinked && (
-          <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-gray-100 mb-8 animate-in fade-in slide-in-from-bottom-4">
-            <div className="px-8 py-6 border-b border-gray-50 bg-[#F4F9FD]">
-              <h3 className="font-bold text-[#2AABEE] flex items-center gap-2">
-                📢 My Channel Verification
-              </h3>
-            </div>
-            <div className="p-8">
-              {!myChannel ? (
-                <div className="flex flex-col gap-4">
-                  {/* 안내 문구 */}
-                  <div className="bg-blue-50 text-blue-800 text-xs p-4 rounded-xl leading-relaxed">
-                    <strong>[인증 방법]</strong>
-                    <br />
-                    1. 텔레그램에서 <strong>@BGT_gomebot</strong>을 본인 채널의{" "}
-                    <strong>관리자(Admin)</strong>로 추가해주세요.
-                    <br />
-                    2. 아래에 채널 ID를 입력하고 &apos;소유권 확인&apos; 버튼을
-                    눌러주세요.
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      type="text"
-                      placeholder="@channel_id 입력"
-                      value={channelInput}
-                      onChange={(e) => setChannelInput(e.target.value)}
-                      className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#2AABEE]/20 focus:border-[#2AABEE] transition-all"
-                    />
-                    <button
-                      onClick={handleVerifyChannel}
-                      disabled={!channelInput || isVerifying}
-                      className="bg-[#2AABEE] hover:bg-[#229ED9] disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold px-6 py-3 rounded-xl text-sm transition-all flex items-center gap-2 whitespace-nowrap justify-center"
-                    >
-                      {isVerifying ? "확인 중..." : "소유권 확인"}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                // 인증 완료된 상태 카드
-                <div className="flex items-center justify-between bg-white border border-gray-100 rounded-2xl p-4 shadow-sm group hover:border-[#2AABEE]/30 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#2AABEE] to-[#229ED9] flex items-center justify-center text-white text-xl font-bold">
-                      {myChannel.handle.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                        @{myChannel.handle}
-                        <span className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0.5 rounded border border-green-200">
-                          {myChannel.role === "creator" ? "OWNER" : "ADMIN"}
-                        </span>
-                      </h4>
-                      <a
-                        href={myChannel.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-gray-500 hover:text-[#2AABEE] hover:underline"
-                      >
-                        {myChannel.url}
-                      </a>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleDeleteChannel}
-                    className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                    title="삭제"
-                  >
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 4. 계정 연동 리스트 */}
-        <div className="bg-white rounded-[32px] overflow-hidden shadow-sm border border-gray-100">
-          <div className="px-8 py-6 border-b border-gray-50 bg-gray-50/50">
-            <h3 className="font-bold text-gray-900">Linked Accounts</h3>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {/* Telegram */}
-            <AccountRow
-              icon="✈️"
-              name="Telegram"
-              isConnected={!!user.telegram}
-              identifier={
-                user.telegram?.username
-                  ? `@${user.telegram.username}`
-                  : user.telegram?.telegramUserId
-              }
-              onLink={() => linkTelegram()} // [수정] 화살표 함수로 감싸기
-              onUnlink={() => unlinkTelegram(user.telegram!.telegramUserId)}
-              isPrimary={true}
-            />
-
-            {/* Google */}
-            <AccountRow
-              icon="G"
-              name="Google"
-              isConnected={!!user.google}
-              identifier={user.google?.email}
-              onLink={() => linkGoogle()} // [수정] 화살표 함수로 감싸기
-              onUnlink={() => unlinkGoogle(user.google!.subject)}
-            />
-
-            {/* Apple */}
-            <AccountRow
-              icon="🍎"
-              name="Apple"
-              isConnected={!!user.apple}
-              identifier={user.apple?.email}
-              onLink={() => linkApple()}
-              onUnlink={() => unlinkApple(user.apple!.subject)}
-            />
-
-            {/* Twitter */}
-            <AccountRow
-              icon="𝕏"
-              name="Twitter"
-              isConnected={!!user.twitter}
-              identifier={
-                user.twitter?.username ? `@${user.twitter.username}` : undefined
-              }
-              onLink={() => linkTwitter()}
-              onUnlink={() => unlinkTwitter(user.twitter!.subject)}
-            />
-
-            {/* Discord */}
-            <AccountRow
-              icon="👾"
-              name="Discord"
-              isConnected={!!user.discord}
-              identifier={user.discord?.username}
-              onLink={() => linkDiscord()}
-              onUnlink={() => unlinkDiscord(user.discord!.subject)}
-            />
-
-            {/* Email */}
-            <AccountRow
-              icon="✉️"
-              name="Email"
-              isConnected={!!user.email}
-              identifier={user.email?.address}
-              onLink={() => linkEmail()}
-              onUnlink={() => unlinkEmail(user.email!.address)}
-            />
-
-            {/* Wallet */}
-            <AccountRow
-              icon="🦊"
-              name="Wallet"
-              isConnected={!!user.wallet}
-              identifier={
-                user.wallet?.address
-                  ? `${user.wallet.address.slice(
-                      0,
-                      6
-                    )}...${user.wallet.address.slice(-4)}`
-                  : undefined
-              }
-              onLink={() => linkWallet()}
-              onUnlink={() => unlinkWallet(user.wallet!.address)}
-            />
-          </div>
-        </div>
-
-        <div className="mt-8 text-center">
-          <Link
-            href="/"
-            className="text-gray-400 text-sm hover:text-gray-600 hover:underline transition-all"
-          >
-            ← 메인으로 돌아가기
-          </Link>
         </div>
       </main>
     </div>
   );
 }
 
-// 5. AccountRow 컴포넌트 (타입 정의 수정 및 onClick 적용)
-interface AccountRowProps {
-  icon: React.ReactNode | string;
-  name: string;
-  isConnected: boolean;
-  identifier?: string | null;
-  onLink: () => void; // 인자 없는 함수 타입
-  onUnlink: () => void;
-  isPrimary?: boolean;
-}
-
+// ----------------------------------------------------------------------
+// AccountRow (Compact)
+// ----------------------------------------------------------------------
 function AccountRow({
   icon,
   name,
@@ -408,19 +565,19 @@ function AccountRow({
   onLink,
   onUnlink,
   isPrimary = false,
-}: AccountRowProps) {
+}: any) {
   return (
-    <div className="flex items-center justify-between p-6 hover:bg-gray-50/50 transition-colors">
-      <div className="flex items-center gap-4">
+    <div className="flex items-center justify-between px-5 py-3 hover:bg-gray-50/50 transition-colors">
+      <div className="flex items-center gap-3">
         <div
-          className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-sm ${
+          className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shadow-sm ${
             isConnected
               ? "bg-white border border-gray-100"
               : "bg-gray-100 text-gray-400 grayscale"
           }`}
         >
           {icon === "G" ? (
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
                 fill="currentColor"
                 d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81z"
@@ -431,24 +588,22 @@ function AccountRow({
           )}
         </div>
         <div>
-          <h4 className="font-bold text-gray-900 text-sm flex items-center gap-2">
-            {name}
+          <h4 className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+            {name}{" "}
             {isPrimary && isConnected && (
-              <span className="bg-blue-100 text-blue-600 text-[10px] px-1.5 py-0.5 rounded font-extrabold">
+              <span className="bg-blue-100 text-blue-600 text-[9px] px-1 py-0.5 rounded font-extrabold leading-none">
                 MAIN
               </span>
             )}
           </h4>
-          <p className="text-xs text-gray-500 font-medium">
+          <p className="text-[10px] text-gray-500 font-medium max-w-[150px] truncate">
             {isConnected ? identifier || "Connected" : "Not linked"}
           </p>
         </div>
       </div>
-
       <button
-        // [중요] 여기를 onLink={...} 가 아니라 onClick={...} 으로 수정했습니다.
         onClick={isConnected ? onUnlink : onLink}
-        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+        className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all border ${
           isConnected
             ? "border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
             : "border-black bg-black text-white hover:bg-gray-800 hover:scale-105 shadow-sm"

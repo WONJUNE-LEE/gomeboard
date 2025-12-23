@@ -20,50 +20,69 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. 채널 ID 형식 정리 (@ 붙이기)
-    const chat_id = channelId.startsWith("@") ? channelId : `@${channelId}`;
+    // 1. 입력값 정제 (URL이나 @가 있어도 ID만 추출)
+    // 예: https://t.me/my_channel -> @my_channel
+    let cleanId = channelId.trim();
+    if (cleanId.includes("t.me/")) {
+      cleanId = cleanId.split("t.me/")[1].split("/")[0]; // URL에서 ID 추출
+    }
+    cleanId = cleanId.replace("@", ""); // @ 제거
+    const chatId = `@${cleanId}`; // API 호출용으로 @ 다시 부착
 
-    // 2. 텔레그램 API 호출: getChatMember
-    // (이 봇이 들어가 있는 채널에서, 특정 유저(userId)의 정보를 가져옴)
-    const response = await fetch(
-      `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${chat_id}&user_id=${userId}`
+    // 2. [API 1] 채널 기본 정보 및 구독자 수 가져오기 (getChat)
+    const chatRes = await fetch(
+      `https://api.telegram.org/bot${botToken}/getChat?chat_id=${chatId}`
     );
+    const chatData = await chatRes.json();
 
-    const data = await response.json();
-
-    // 3. 텔레그램 API 에러 처리 (봇이 채널에 없거나, 채널이 없거나)
-    if (!data.ok) {
-      // 봇이 채널에 없을 때 주로 발생
+    if (!chatData.ok) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "봇이 채널에 없습니다. 봇을 관리자로 추가했는지 확인해주세요.",
-          detail: data.description,
+          message: "채널을 찾을 수 없습니다. 봇이 추가되었는지 확인해주세요.",
         },
         { status: 400 }
       );
     }
 
-    // 4. 유저 권한 확인
-    const status = data.result.status; // 'creator', 'administrator', 'member', 'left' ...
+    // 3. [API 2] 관리자 권한 검증 (getChatMember)
+    const memberRes = await fetch(
+      `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${chatId}&user_id=${userId}`
+    );
+    const memberData = await memberRes.json();
 
-    // 생성자(creator)이거나 관리자(administrator)인 경우만 인정
-    if (status === "creator" || status === "administrator") {
-      return NextResponse.json({
-        success: true,
-        role: status,
-        channel: data.result.chat,
-      });
-    } else {
+    if (!memberData.ok || !["creator"].includes(memberData.result.status)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "채널의 관리자 권한이 확인되지 않았습니다.",
-        },
+        { success: false, message: "소유주 권한이 확인되지 않았습니다." },
         { status: 403 }
       );
     }
+
+    // 4. [API 3] 프로필 사진 가져오기 (있다면)
+    let photoUrl = null;
+    if (chatData.result.photo?.big_file_id) {
+      const fileRes = await fetch(
+        `https://api.telegram.org/bot${botToken}/getFile?file_id=${chatData.result.photo.big_file_id}`
+      );
+      const fileData = await fileRes.json();
+      if (fileData.ok) {
+        // 텔레그램 파일 경로를 실제 URL로 변환
+        photoUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
+      }
+    }
+
+    // 5. 성공 결과 리턴 (구독자 수, 제목, 이미지 포함)
+    return NextResponse.json({
+      success: true,
+      role: memberData.result.status,
+      channel: {
+        id: cleanId, // @ 뺀 순수 ID
+        title: chatData.result.title, // 채널명
+        subscribers: chatData.result.count, // 구독자 수 (봇이 권한 있어야 보일 수 있음)
+        photoUrl: photoUrl, // 프로필 이미지 URL
+        url: `https://t.me/${cleanId}`,
+      },
+    });
   } catch (error) {
     console.error("Verification Error:", error);
     return NextResponse.json(
