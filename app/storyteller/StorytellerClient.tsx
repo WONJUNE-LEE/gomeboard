@@ -5,8 +5,6 @@ import React, { useMemo, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Treemap, ResponsiveContainer, Tooltip } from "recharts";
 
-// ... (타입 정의 및 generateSparklinePath, CustomTreemapContent, CustomTooltip은 기존과 동일하므로 생략하지 않고 전체 코드 유지) ...
-
 // ----------------------------------------------------------------------
 // 타입 정의
 // ----------------------------------------------------------------------
@@ -61,36 +59,36 @@ function generateSparklinePath(data: number[], width: number, height: number) {
 }
 
 // ----------------------------------------------------------------------
-// [Design] 초기 스타일 복구: 색상 틴트 + 스파크라인
+// [Design] 트라맵 컨텐츠
 // ----------------------------------------------------------------------
 const CustomTreemapContent = (props: any) => {
   const { x, y, width, height, name, value, totalScore } = props;
   const itemData = props.itemData || props.payload?.itemData;
   if (!itemData || width < 50 || height < 50) return null;
 
-  // 크기별 레이아웃 결정
   const isLarge = width > 160 && height > 120;
   const isMedium = !isLarge && width > 120 && height > 100;
   const isSmall = !isLarge && !isMedium;
 
-  const percentage = ((value / totalScore) * 100).toFixed(1);
+  // [Fix] 숫자 변환 안전장치
+  const safeTotal = Number(totalScore) || 1;
+  const safeValue = Number(value) || 0;
+  const percentage = ((safeValue / safeTotal) * 100).toFixed(1);
+
   const dailySeries = itemData.dailySeries || [];
   const dailyScores = dailySeries.map((s: DailyPoint) => s.dailyScore);
 
-  // 성장 여부 (마지막 수치 vs 처음 수치)
   const isGrowing =
     (dailyScores[dailyScores.length - 1] || 0) >= (dailyScores[0] || 0);
 
-  // [초기 스타일 복구] 틴트 컬러 및 보더
   const tintColor = isGrowing
-    ? "rgba(16, 185, 129, 0.1)" // Emerald Tint
-    : "rgba(244, 63, 94, 0.1)"; // Rose Tint
+    ? "rgba(16, 185, 129, 0.1)"
+    : "rgba(244, 63, 94, 0.1)";
   const borderColor = isGrowing
     ? "rgba(16, 185, 129, 0.4)"
     : "rgba(244, 63, 94, 0.4)";
   const sparklineColor = isGrowing ? "#10B981" : "#F43F5E";
 
-  // 이중 보더 방지를 위한 간격 조정 (gap)
   const gap = 4;
   const drawX = x + gap / 2;
   const drawY = y + gap / 2;
@@ -112,7 +110,6 @@ const CustomTreemapContent = (props: any) => {
       <div
         className="w-full h-full rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl group relative overflow-hidden flex flex-col justify-between p-3"
         style={{
-          // 초기 스타일: 그라데이션 + 블러 + 색상 보더
           background: `linear-gradient(135deg, rgba(255,255,255,0.4) 0%, ${tintColor} 100%)`,
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
@@ -129,7 +126,6 @@ const CustomTreemapContent = (props: any) => {
               : "flex-col justify-between"
           }`}
         >
-          {/* 상단 정보 */}
           <div
             className={`flex ${
               isSmall ? "flex-col items-center" : "items-start gap-2"
@@ -187,7 +183,6 @@ const CustomTreemapContent = (props: any) => {
             )}
           </div>
 
-          {/* 스파크라인 (Large일 때만) */}
           {isLarge && (
             <div className="absolute bottom-4 left-4 right-4 h-1/4 pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
               <svg width="100%" height="100%" overflow="visible">
@@ -204,14 +199,13 @@ const CustomTreemapContent = (props: any) => {
             </div>
           )}
 
-          {/* 하단 점수 */}
           {!isSmall && (
             <div className="relative z-10 text-right mt-auto">
               <p className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5 mix-blend-multiply">
                 Total Score
               </p>
               <p className="text-sm font-black text-gray-800 tabular-nums tracking-tight group-hover:scale-105 transition-transform origin-right">
-                {Math.round(value).toLocaleString()}
+                {Math.round(safeValue).toLocaleString()}
               </p>
             </div>
           )}
@@ -251,7 +245,7 @@ const CustomTooltip = ({ active, payload }: any) => {
               Total Score
             </span>
             <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg text-xs">
-              {Math.round(item.score).toLocaleString()}
+              {Math.round(Number(item.score) || 0).toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center gap-4">
@@ -352,6 +346,7 @@ export default function StorytellerClient({
         }
       } catch (e) {
         console.error(e);
+        setSelectedDate(todayStr);
       } finally {
         setIsLoadingHistory(false);
       }
@@ -371,14 +366,20 @@ export default function StorytellerClient({
   const { treeMapData, totalScore } = useMemo(() => {
     if (!currentApiData?.channels) return { treeMapData: [], totalScore: 0 };
     const channels: ChannelData[] = currentApiData.channels;
-    const total = channels.reduce((sum, ch) => sum + ch.score, 0);
+
+    const total = channels.reduce(
+      (sum, ch) => sum + (Number(ch.score) || 0),
+      0
+    );
+
     const data = channels.map((ch) => {
       const rawSeries = ch.series || [];
       const dailySeries: DailyPoint[] = [];
       for (let i = 1; i < rawSeries.length; i++) {
         const prev = rawSeries[i - 1];
         const curr = rawSeries[i];
-        const dailyScore = curr.score - prev.score;
+        const dailyScore =
+          (Number(curr.score) || 0) - (Number(prev.score) || 0);
         dailySeries.push({
           date: curr.date,
           dailyScore: dailyScore < 0 ? 0 : dailyScore,
@@ -386,7 +387,7 @@ export default function StorytellerClient({
       }
       return {
         name: ch.channelTitle,
-        value: ch.score,
+        value: Number(ch.score) || 0,
         itemData: { ...ch, dailySeries },
       };
     });
@@ -454,7 +455,7 @@ export default function StorytellerClient({
 
   return (
     <div className="flex-1 w-full bg-[#F5F5F7] text-[#1D1D1F] font-sans">
-      <main className="max-w-7xl mx-auto px-6 py-12">
+      <main className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12">
         {/* 헤더 섹션 */}
         <div className="flex flex-col gap-8 mb-12">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -470,7 +471,6 @@ export default function StorytellerClient({
               </p>
             </div>
 
-            {/* 컨트롤 패널 */}
             <div className="flex items-end gap-3">
               {/* Period Selector */}
               <div className="flex flex-col items-end gap-1">
@@ -562,9 +562,7 @@ export default function StorytellerClient({
         </div>
 
         {/* 1. TreeMap */}
-        {/* [수정] mb-16 -> mb-10: 아래 리스트와 스케줄 사이 간격(gap-10)과 통일 */}
         <div className="relative h-[650px] w-full mb-10 rounded-3xl overflow-hidden shadow-inner border border-white/50 bg-white/30">
-          {/* 배경 로고 */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.1] z-0">
             <img
               src="/logo.png"
@@ -584,7 +582,6 @@ export default function StorytellerClient({
           <div className="w-full h-full relative z-10 p-4">
             {treemapVisualData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                {/* [수정] isAnimationActive={false} 추가하여 애니메이션 제거 */}
                 <Treemap
                   data={treemapVisualData}
                   dataKey="value"
@@ -606,26 +603,27 @@ export default function StorytellerClient({
           </div>
         </div>
 
-        {/* 2. Leaderboard & Schedule (세로 배치) */}
+        {/* 2. Leaderboard & Schedule */}
         <div className="flex flex-col gap-10">
           {/* Leaderboard */}
-          <div className="bg-white rounded-xl border border-gray-200 p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+          <div className="bg-white rounded-xl border border-gray-200 p-4 md:p-8 shadow-sm">
+            <h2 className="text-lg md:text-xl font-bold text-gray-900 mb-4 md:mb-6 flex items-center gap-2">
               🏆 Leaderboard{" "}
               <span className="text-xs font-normal text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
                 Top 50
               </span>
             </h2>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full text-left text-xs border-collapse table-auto">
                 <thead>
                   <tr className="border-b border-gray-100 text-gray-400 uppercase tracking-wider text-[10px]">
-                    <th className="py-2 pl-2 w-10 text-center">#</th>
+                    <th className="py-2 pl-1 w-8 text-center md:pl-2 md:w-10">
+                      #
+                    </th>
                     <th className="py-2">Channel</th>
-                    {/* [변경] Share 컬럼 추가 */}
-                    <th className="py-2 text-right w-16">Share</th>
-                    <th className="py-2 text-right pr-4">Score</th>
-                    <th className="py-2 text-center w-12">Link</th>
+                    <th className="py-2 text-right w-12 md:w-16">Share</th>
+                    <th className="py-2 text-right pr-2 md:pr-4">Score</th>
+                    <th className="py-2 text-center w-8 md:w-12">Link</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -635,10 +633,11 @@ export default function StorytellerClient({
                       ? `https://t.me/${ch.channelUsername}`
                       : `https://t.me/${ch.channelId}`;
 
-                    // [변경] 점유율 계산 (소수점 2자리)
+                    const safeScore = Number(ch.score) || 0;
+                    const safeTotal = Number(totalScore) || 1;
                     const share =
-                      totalScore > 0
-                        ? ((ch.score / totalScore) * 100).toFixed(2)
+                      safeTotal > 0
+                        ? ((safeScore / safeTotal) * 100).toFixed(2)
                         : "0.00";
 
                     return (
@@ -646,41 +645,41 @@ export default function StorytellerClient({
                         key={ch.channelId}
                         className="hover:bg-blue-50/30 transition-colors group"
                       >
-                        <td className="py-2 pl-2 text-center font-bold text-gray-400 group-hover:text-[#0037F0] text-xs">
+                        <td className="py-2 pl-1 text-center font-bold text-gray-400 group-hover:text-[#0037F0] text-xs md:pl-2">
                           {idx + 1}
                         </td>
                         <td className="py-2">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 md:gap-3">
                             {ch.profileImageUrl ? (
                               <img
                                 src={ch.profileImageUrl}
-                                className="w-8 h-8 rounded-full border border-gray-100 object-cover"
+                                className="w-6 h-6 md:w-8 md:h-8 rounded-full border border-gray-100 object-cover"
                               />
                             ) : (
-                              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-[10px]">
+                              <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold text-[10px]">
                                 ?
                               </div>
                             )}
-                            <div className="min-w-0">
-                              <p className="font-bold text-gray-900 truncate max-w-[200px] text-xs">
+                            <div className="min-w-0 flex-1">
+                              {/* [모바일] max-w-100px로 줄여서 ...처리 */}
+                              <p className="font-bold text-gray-900 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px] text-[11px] md:text-xs">
                                 {ch.channelTitle}
                               </p>
-                              <p className="text-[10px] text-gray-400 truncate">
+                              <p className="text-[9px] md:text-[10px] text-gray-400 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
                                 @{ch.channelUsername || ch.channelId}
                               </p>
                             </div>
                           </div>
                         </td>
-                        {/* [변경] Share 데이터 표시 */}
-                        <td className="py-2 text-right text-xs font-medium text-gray-500 tabular-nums">
+                        <td className="py-2 text-right text-xs font-medium text-gray-500 tabular-nums w-12 md:w-16">
                           {share}%
                         </td>
-                        <td className="py-2 text-right pr-4">
+                        <td className="py-2 text-right pr-2 md:pr-4">
                           <span className="text-gray-900 font-bold font-mono text-xs group-hover:text-[#0037F0]">
-                            {Math.round(ch.score).toLocaleString()}
+                            {Math.round(safeScore).toLocaleString()}
                           </span>
                         </td>
-                        <td className="py-2 text-center">
+                        <td className="py-2 text-center w-8 md:w-12">
                           <a
                             href={telegramLink}
                             target="_blank"
