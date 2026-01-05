@@ -253,9 +253,12 @@ export default function KimchiMapClient() {
           limit: "50",
           pretge: preTge.toString(),
         });
-        const res = await fetch(
-          `https://mashboard-api.despreadlabs.io/telegram/mindshare/community?${query}`
-        );
+
+        // [수정] 외부 URL -> 내부 API 라우트로 변경
+        // 기존: https://mashboard-api.despreadlabs.io/telegram/mindshare/community?...
+        // 변경: /api/mindshare?...
+        const res = await fetch(`/api/mindshare?${query}`);
+
         if (res.ok) {
           const json = await res.json();
           setData(json);
@@ -268,7 +271,6 @@ export default function KimchiMapClient() {
     }
     fetchData();
   }, [intervalDays, preTge]);
-
   // 데이터 가공
   const { treeMapData, totalMentions, rankingData } = useMemo(() => {
     if (!data?.items)
